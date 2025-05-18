@@ -258,8 +258,8 @@ CELERY_BEAT_SCHEDULE = {
 }
 
 # Настройки Email
-MAILGUN_API_KEY = os.getenv('MAILGUN_API_KEY', 'e63955b5a39a336be3f0df4301ffc489-e71583bb-2f1b1131')
-MAILGUN_DOMAIN = os.getenv('MAILGUN_DOMAIN', 'sandbox1338ebe362f74dc0808b64f36dceb60e.mailgun.org')
+MAILGUN_API_KEY = os.getenv('MAILGUN_API_KEY', )
+MAILGUN_DOMAIN = os.getenv('MAILGUN_DOMAIN', )
 DEFAULT_FROM_EMAIL = os.getenv('DEFAULT_FROM_EMAIL', 'no-reply@charity-auction.com')
 
 # URL для писем

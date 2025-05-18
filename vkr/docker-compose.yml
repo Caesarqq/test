@@ -52,9 +52,9 @@ services:
       - DB_PORT=5432
       - CELERY_BROKER_URL=amqp://user:password@rabbitmq:5672//
       - CELERY_RESULT_BACKEND=rpc://
-      - MAILGUN_API_KEY=key-c0ef3d81060d5f0d17c54e60aaa3234e-e71583bb-59d12c68
-      - MAILGUN_DOMAIN=sandbox1338ebe362f74dc0808b64f36dceb60e.mailgun.org
-      - DEFAULT_FROM_EMAIL=no-reply@charity-auction.com
+      - MAILGUN_API_KEY=
+      - MAILGUN_DOMAIN=
+      - DEFAULT_FROM_EMAIL=
       - SITE_URL=http://localhost:8000
     command: >
       sh -c "
