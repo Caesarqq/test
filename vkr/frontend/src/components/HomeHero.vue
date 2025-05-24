@@ -48,9 +48,10 @@ export default {
   background-size: cover;
   background-position: center;
   color: white;
-  padding: 80px 0 65px;
+  padding: 80px 0 0;
   text-align: center;
   position: relative;
+  height: 100vh;
 }
 
 .hero-content {

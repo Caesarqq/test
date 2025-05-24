@@ -23,7 +23,6 @@
         <div class="auction-status" :class="getStatusClass">
           {{ getStatusText }}
         </div>
-        <!-- Кнопки для владельца-аукциона (организации) -->
         <div v-if="showOwnerControls" class="auction-owner-controls">
           <button @click.stop="editAuction" class="btn-edit">Редактировать</button>
           <button @click.stop="showCustomConfirm = true" class="btn-delete">Удалить</button>
@@ -63,19 +62,15 @@ export default {
     const authStore = useAuthStore();
     const auctionsStore = useAuctionsStore();
     const showCustomConfirm = ref(false);
-    
-    // Проверка, показывать ли кнопки владельца (организации)
+
     const showOwnerControls = computed(() => {
       if (!authStore.isAuthenticated || authStore.user?.role !== 'charity') return false;
-      // Проверяем, что charity текущего пользователя совпадает с charity аукциона
       if (!authStore.user.charity || !props.auction.charity) return false;
-      // props.auction.charity может быть объектом или id
       const userCharityId = typeof authStore.user.charity === 'object' ? authStore.user.charity.id : authStore.user.charity;
       const auctionCharityId = typeof props.auction.charity === 'object' ? props.auction.charity.id : props.auction.charity;
       return userCharityId === auctionCharityId;
     });
-    
-    // Функция для форматирования даты
+
     const formatDate = (dateString) => {
       if (!dateString) return 'Не указано';
       
@@ -86,8 +81,7 @@ export default {
         year: 'numeric'
       }).format(date);
     };
-    
-    // Определение статуса аукциона
+
     const getStatusClass = computed(() => {
       const now = new Date();
       const startDate = new Date(props.auction.start_time);
@@ -97,8 +91,7 @@ export default {
       if (now > endDate) return 'ended';
       return 'active';
     });
-    
-    // Текст статуса аукциона
+
     const getStatusText = computed(() => {
       switch (getStatusClass.value) {
         case 'upcoming': return 'Ожидается';
@@ -107,13 +100,11 @@ export default {
         default: return 'Неизвестно';
       }
     });
-    
-    // Функция перехода на страницу аукциона
+
     const navigateToAuction = () => {
       router.push({ name: 'auction-detail', params: { id: props.auction.id } });
     };
-    
-    // Переход на страницу редактирования аукциона
+
     const editAuction = () => {
       router.push({ name: 'create-auction', query: { edit: props.auction.id } });
     };

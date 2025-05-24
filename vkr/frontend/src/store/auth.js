@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia';
 import { jwtDecode } from 'jwt-decode';
 import authApi from '../api/authApi';
+import { useTicketsStore } from './ticketsStore';
 
 export const useAuthStore = defineStore('auth', {
   state: () => ({
@@ -91,145 +92,171 @@ export const useAuthStore = defineStore('auth', {
     },
     
     // Авторизация пользователя
-    async login(credentials) {
-      this.loading = true;
-      this.error = null;
-      
-      try {
-        const response = await authApi.login(credentials);
-        
-        // Сохраняем токены
-        const { access, refresh } = response.data;
-        this.accessToken = access;
-        this.refreshToken = refresh;
-        
-        // Сохраняем токены в localStorage
-        localStorage.setItem('access_token', access);
-        localStorage.setItem('refresh_token', refresh);
-        
-        // Получаем информацию о пользователе
-        await this.fetchUserProfile();
-        
-        // Если пользователь с ролью charity, получаем информацию о его организации
-        if (this.user?.role === 'charity') {
-          await this.fetchUserCharity();
-        }
-        
-        return true;
-      } catch (error) {
-        this.error = error.response?.data?.detail || 'Неверный логин или пароль';
-        console.error('Login error:', error);
-        return false;
-      } finally {
-        this.loading = false;
-      }
-    },
+// Авторизация пользователя
+async login(credentials) {
+  this.loading = true;
+  this.error = null;
+  
+  try {
+    const response = await authApi.login(credentials);
     
-    // Получение информации о пользователе
-    async fetchUserProfile() {
-      if (!this.accessToken) return;
-      
-      this.loading = true;
-      
-      try {
-        const response = await authApi.getProfile();
-        this.user = response.data;
-        console.log('Получен профиль пользователя:', this.user);
-        
-        // Если пользователь с ролью charity, получаем информацию о его организации
-        if (this.user?.role === 'charity') {
-          await this.fetchUserCharity();
-        }
-      } catch (error) {
-        console.error('Error fetching user profile:', error);
-        
-        // Если при получении профиля произошла ошибка авторизации,
-        // и токен не удалось обновить, выполняем выход
-        if (error.response?.status === 401) {
-          this.logout();
-        }
-      } finally {
-        this.loading = false;
-      }
-    },
+    // Сохраняем токены
+    const { access, refresh } = response.data;
+    this.accessToken = access;
+    this.refreshToken = refresh;
     
-    // Получение информации о благотворительной организации пользователя
-    async fetchUserCharity() {
-      if (!this.accessToken || this.user?.role !== 'charity') return;
-      
-      this.loading = true;
-      
-      try {
-        console.log('Запрос данных о charity пользователя...');
-        const response = await authApi.getUserCharity();
-        this.userCharity = response.data;
-        console.log('Получены данные организации:', this.userCharity);
-        
-        // Обновляем данные пользователя, добавляя информацию о charity
-        if (this.user && this.userCharity) {
-          this.user.charity = this.userCharity;
-          console.log('Обновлены данные пользователя с charity:', this.user);
-        }
-        
-        return this.userCharity;
-      } catch (error) {
-        console.error('Error fetching user charity:', error);
-        
-        // Проверяем, существует ли уже организация для этого пользователя
-        try {
-          // Запрашиваем список всех организаций
-          const charitiesResponse = await authApi.getCharities();
-          const charities = charitiesResponse.data;
-          
-          if (charities && Array.isArray(charities)) {
-            // Ищем организацию, связанную с текущим пользователем
-            const userCharity = charities.find(c => c.user && c.user.id === this.user.id);
-            
-            if (userCharity) {
-              this.userCharity = userCharity;
-              this.user.charity = userCharity;
-              console.log('Найдена организация из общего списка:', userCharity);
-              return userCharity;
-            }
-          }
-        } catch (err) {
-          console.error('Error fetching charities list:', err);
-        }
-        
-        return null;
-      } finally {
-        this.loading = false;
-      }
-    },
+    // Сохраняем токены в localStorage
+    localStorage.setItem('access_token', access);
+    localStorage.setItem('refresh_token', refresh);
     
-    // Выход из системы
-    logout() {
-      this.accessToken = null;
-      this.refreshToken = null;
-      this.user = null;
-      this.userCharity = null;
-      
-      // Удаляем токены из localStorage
-      localStorage.removeItem('access_token');
-      localStorage.removeItem('refresh_token');
-    },
+    // Получаем информацию о пользователе
+    await this.fetchUserProfile();
     
-    // Обновление состояния хранилища при обновлении токена из interceptor
-    updateTokens(accessToken, refreshToken = null) {
-      this.accessToken = accessToken;
-      
-      if (refreshToken) {
-        this.refreshToken = refreshToken;
-        localStorage.setItem('refresh_token', refreshToken);
-      }
-      
-      localStorage.setItem('access_token', accessToken);
-    },
-    
-    // Сброс состояния регистрации
-    resetRegisterState() {
-      this.registerSuccess = false;
-      this.registerMessage = '';
+    // Если пользователь с ролью charity, получаем информацию о его организации
+    if (this.user?.role === 'charity') {
+      await this.fetchUserCharity();
     }
+    
+    // Если пользователь с ролью buyer, загружаем информацию о билетах
+    if (this.user?.role === 'buyer') {
+      try {
+        // Загружаем билеты с сервера
+        const ticketsResponse = await apiClient.get('/auctions/tickets/');
+        if (ticketsResponse.data && Array.isArray(ticketsResponse.data)) {
+          // Сохраняем билеты в localStorage
+          localStorage.setItem('user_tickets', JSON.stringify(ticketsResponse.data));
+          console.log('Загружены билеты пользователя:', ticketsResponse.data);
+        }
+      } catch (err) {
+        console.error('Error fetching user tickets:', err);
+      }
+    }
+    
+    return true;
+  } catch (error) {
+    this.error = error.response?.data?.detail || 'Неверный логин или пароль';
+    console.error('Login error:', error);
+    return false;
+  } finally {
+    this.loading = false;
   }
-}); 
+},
+
+// Получение информации о пользователе
+async fetchUserProfile() {
+  if (!this.accessToken) return;
+  
+  this.loading = true;
+  
+  try {
+    const response = await authApi.getProfile();
+    this.user = response.data;
+    console.log('Получен профиль пользователя:', this.user);
+    
+    // Если пользователь с ролью charity, получаем информацию о его организации
+    if (this.user?.role === 'charity') {
+      await this.fetchUserCharity();
+    }
+  } catch (error) {
+    console.error('Error fetching user profile:', error);
+    
+    // Если при получении профиля произошла ошибка авторизации,
+    // и токен не удалось обновить, выполняем выход
+    if (error.response?.status === 401) {
+      this.logout();
+    }
+  } finally {
+    this.loading = false;
+  }
+},
+
+// Получение информации о благотворительной организации пользователя
+async fetchUserCharity() {
+  if (!this.accessToken || this.user?.role !== 'charity') return;
+  
+  this.loading = true;
+  
+  try {
+    console.log('Запрос данных о charity пользователя...');
+    const response = await authApi.getUserCharity();
+    this.userCharity = response.data;
+    console.log('Получены данные организации:', this.userCharity);
+    
+    // Обновляем данные пользователя, добавляя информацию о charity
+    if (this.user && this.userCharity) {
+      this.user.charity = this.userCharity;
+      console.log('Обновлены данные пользователя с charity:', this.user);
+    }
+    
+    return this.userCharity;
+  } catch (error) {
+    console.error('Error fetching user charity:', error);
+    
+    // Проверяем, существует ли уже организация для этого пользователя
+    try {
+      // Запрашиваем список всех организаций
+      const charitiesResponse = await authApi.getCharities();
+      const charities = charitiesResponse.data;
+      
+      if (charities && Array.isArray(charities)) {
+        // Ищем организацию, связанную с текущим пользователем
+        const userCharity = charities.find(c => c.user && c.user.id === this.user.id);
+        
+        if (userCharity) {
+          this.userCharity = userCharity;
+          this.user.charity = userCharity;
+          console.log('Найдена организация из общего списка:', userCharity);
+          return userCharity;
+        }
+      }
+    } catch (err) {
+      console.error('Error fetching charities list:', err);
+    }
+    
+    return null;
+  } finally {
+    this.loading = false;
+  }
+},
+
+// Выход из системы
+logout() {
+  // Сохраняем некоторые данные пользователя перед выходом
+  if (this.user && this.user.role === 'buyer') {
+    // Сохраняем ID пользователя для сопоставления билетов при повторном входе
+    const userId = this.user.id;
+    localStorage.setItem('previous_user_id', userId.toString());
+    
+    // Мы не удаляем user_tickets из localStorage, 
+    // так они останутся доступными при повторном входе
+  }
+  
+  this.accessToken = null;
+  this.refreshToken = null;
+  this.user = null;
+  this.userCharity = null;
+  
+  // Удаляем только токены из localStorage
+  localStorage.removeItem('access_token');
+  localStorage.removeItem('refresh_token');
+},
+
+// Обновление состояния хранилища при обновлении токена из interceptor
+updateTokens(accessToken, refreshToken = null) {
+  this.accessToken = accessToken;
+  
+  if (refreshToken) {
+    this.refreshToken = refreshToken;
+    localStorage.setItem('refresh_token', refreshToken);
+  }
+  
+  localStorage.setItem('access_token', accessToken);
+},
+
+// Сброс состояния регистрации
+resetRegisterState() {
+  this.registerSuccess = false;
+  this.registerMessage = '';
+}
+  }
+});

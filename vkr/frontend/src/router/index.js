@@ -2,7 +2,6 @@ import { createRouter, createWebHistory } from 'vue-router'
 import Home from '../views/Home.vue'
 import { useAuthStore } from '../store/auth'
 
-// Определяем базовый URL для роутера
 const base = '/'
 
 const routes = [
@@ -103,7 +102,7 @@ const routes = [
     component: () => import('../views/CreateAuction.vue'),
     meta: { requiresAuth: true, requiredRole: 'charity' }
   },
-  // Обработка 404 и перенаправление на главную
+
   {
     path: '/:pathMatch(.*)*',
     redirect: '/'
@@ -118,31 +117,25 @@ const router = createRouter({
   }
 })
 
-// Защита маршрутов для неавторизованных пользователей
 router.beforeEach((to, from, next) => {
   const authStore = useAuthStore()
   
   console.log('Navigating to route:', to.path, to.query);
   
-  // Если маршрут требует авторизации
   if (to.meta.requiresAuth) {
-    // Если пользователь не авторизован, перенаправляем на страницу входа
     if (!authStore.isAuthenticated) {
       console.log('User not authenticated, redirecting to login');
       next({ name: 'login' })
       return
     }
     
-    // Если маршрут требует определенной роли
     if (to.meta.requiredRole && authStore.user?.role !== to.meta.requiredRole) {
-      // Если у пользователя неправильная роль, перенаправляем обратно
       console.log('User role mismatch:', authStore.user?.role, to.meta.requiredRole);
       next({ name: from.name || 'home' })
       return
     }
   }
-  
-  // В противном случае, разрешаем переход
+
   next()
 })
 

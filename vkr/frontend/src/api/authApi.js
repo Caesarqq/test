@@ -8,6 +8,7 @@ export default {
   
   // Авторизация и получение токена
   login(credentials) {
+    // Уберите начальный "/api" - с ним получается дублирование
     return apiClient.post('/token/', credentials);
   },
   

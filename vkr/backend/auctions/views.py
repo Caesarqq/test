@@ -15,6 +15,7 @@ from users.permissions import IsOrganization, IsOwner, IsAuctionOwner
 from users.models import Balance
 
 
+
 class AuctionCreateView(CreateAPIView):
     """
     Представление для создания аукциона.
@@ -32,7 +33,6 @@ class AuctionCreateView(CreateAPIView):
         return super().post(request, *args, **kwargs)
     
     def perform_create(self, serializer):
-        # Автоматически связываем аукцион с благотворительной организацией пользователя
         serializer.save(charity=self.request.user.charity)
 
 
@@ -73,49 +73,6 @@ class AuctionListView(ListAPIView):
         return context
 
 
-class AuctionDetailView(RetrieveAPIView):
-    """
-    Представление для получения деталей конкретного аукциона.
-    Доступно для всех пользователей.
-    """
-    queryset = Auction.objects.all()
-    serializer_class = AuctionSerializer
-    
-    @swagger_auto_schema(
-        operation_summary="Получить детали аукциона",
-        operation_description="Возвращает детальную информацию о конкретном аукционе по его ID.",
-        responses={200: AuctionSerializer, 404: "Аукцион не найден"}
-    )
-    def get(self, request, *args, **kwargs):
-        instance = self.get_object()
-        
-        # Если аукцион платный и пользователь аутентифицирован, проверяем наличие билета
-        if instance.is_paid and request.user.is_authenticated:
-            # Владелец аукциона всегда имеет доступ
-            if hasattr(request.user, 'charity') and request.user.charity.id == instance.charity.id:
-                # У владельца есть доступ
-                serializer = self.get_serializer(instance)
-                return Response(serializer.data)
-            
-            # Доноры также имеют доступ без билета
-            if request.user.role == 'donor':
-                serializer = self.get_serializer(instance)
-                return Response(serializer.data)
-                
-            # Для остальных пользователей проверяем наличие билета
-            elif not AuctionTicket.objects.filter(auction=instance, user=request.user).exists():
-                # Добавляем поле needs_ticket в ответ
-                serializer = self.get_serializer(instance)
-                data = serializer.data
-                data['needs_ticket'] = True
-                return Response(data)
-        
-        return super().get(request, *args, **kwargs)
-        
-    def get_serializer_context(self):
-        context = super().get_serializer_context()
-        context['request'] = self.request
-        return context
 
 
 class AuctionUpdateView(UpdateAPIView):
@@ -185,7 +142,6 @@ class AuctionViewSet(viewsets.ModelViewSet):
         return [permission() for permission in permission_classes]
     
     def perform_create(self, serializer):
-        # Автоматически связываем аукцион с благотворительной организацией пользователя
         serializer.save(charity=self.request.user.charity)
     
     def get_serializer_context(self):
@@ -244,7 +200,28 @@ class AuctionEventViewSet(viewsets.ModelViewSet):
             return Response(serializer.data)
         return Response({"error": "Auction ID is required"}, status=status.HTTP_400_BAD_REQUEST)
 
-
+class AuctionDetailView(RetrieveAPIView):
+    """
+    Представление для получения информации об отдельном аукционе.
+    Доступно для всех пользователей.
+    """
+    queryset = Auction.objects.all()
+    serializer_class = AuctionSerializer
+    permission_classes = [permissions.AllowAny]
+    
+    @swagger_auto_schema(
+        operation_summary="Получить детали аукциона",
+        operation_description="Возвращает подробную информацию об аукционе по его ID.",
+        responses={200: AuctionSerializer, 404: "Аукцион не найден"}
+    )
+    def get(self, request, *args, **kwargs):
+        return super().get(request, *args, **kwargs)
+    
+    def get_serializer_context(self):
+        context = super().get_serializer_context()
+        context['request'] = self.request
+        return context
+    
 class AuctionTicketViewSet(viewsets.ModelViewSet):
     queryset = AuctionTicket.objects.all()
     serializer_class = AuctionTicketSerializer
@@ -286,29 +263,24 @@ class AuctionTicketViewSet(viewsets.ModelViewSet):
             auction = Auction.objects.get(pk=auction_id)
         except Auction.DoesNotExist:
             return Response({"error": "Аукцион не найден"}, status=status.HTTP_404_NOT_FOUND)
-        
-        # Проверяем, что аукцион платный
+
         if not auction.is_paid:
             return Response({"error": "Этот аукцион бесплатный, билет не требуется"}, status=status.HTTP_400_BAD_REQUEST)
-        
-        # Проверяем, что у пользователя еще нет билета на этот аукцион
+
         if AuctionTicket.objects.filter(auction=auction, user=request.user).exists():
             return Response({"error": "У вас уже есть билет на этот аукцион"}, status=status.HTTP_400_BAD_REQUEST)
-        
-        # Проверяем средства на балансе
+
         user_balance = Balance.objects.get(user=request.user)
         if not user_balance.check_funds(auction.ticket_price):
             return Response({"error": "Недостаточно средств на балансе"}, status=status.HTTP_400_BAD_REQUEST)
-        
-        # Списываем средства и создаем билет
+
         try:
             user_balance.withdraw(auction.ticket_price)
             ticket = AuctionTicket.objects.create(
                 auction=auction,
                 user=request.user
             )
-            
-            # Создаем событие о покупке билета
+
             AuctionEvent.objects.create(
                 auction=auction,
                 event_type=AuctionEvent.EVENT_TICKET_PURCHASED,
@@ -352,20 +324,28 @@ class AuctionTicketViewSet(viewsets.ModelViewSet):
             auction = Auction.objects.get(pk=auction_id)
         except Auction.DoesNotExist:
             return Response({"error": "Аукцион не найден"}, status=status.HTTP_404_NOT_FOUND)
-        
-        # Если аукцион бесплатный, доступ есть у всех
+
         if not auction.is_paid:
             return Response({"has_ticket": True, "ticket": None}, status=status.HTTP_200_OK)
-        
-        # Если пользователь - владелец аукциона, предоставляем автоматический доступ
+
         if hasattr(request.user, 'charity') and request.user.charity.id == auction.charity.id:
             return Response({"has_ticket": True, "ticket": None}, status=status.HTTP_200_OK)
-            
-        # Если пользователь - донор, также предоставляем автоматический доступ
+
         if request.user.role == 'donor':
             return Response({"has_ticket": True, "ticket": None}, status=status.HTTP_200_OK)
+
+        from django.utils import timezone
+        from users.models import Subscription
         
-        # Проверяем наличие билета для других пользователей
+        active_subscription = Subscription.objects.filter(
+            user=request.user,
+            is_active=True,
+            end_date__gt=timezone.now()
+        ).exists()
+        
+        if active_subscription:
+            return Response({"has_ticket": True, "ticket": None}, status=status.HTTP_200_OK)
+
         try:
             ticket = AuctionTicket.objects.get(auction=auction, user=request.user)
             serializer = self.get_serializer(ticket)

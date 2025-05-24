@@ -16,13 +16,11 @@
         </ul>
       </nav>
       
-      <!-- Кнопки для неавторизованных пользователей -->
       <div class="auth-buttons" v-if="!authStore.isAuthenticated">
         <router-link to="/login" class="login-btn">Войти</router-link>
         <router-link to="/register" class="register-btn">Регистрация</router-link>
       </div>
-      
-      <!-- Кнопки для авторизованных пользователей -->
+
       <div class="user-profile" v-else>
         <div class="profile-dropdown">
           <button class="profile-btn" @click="toggleProfileMenu">
@@ -58,36 +56,30 @@ export default {
     const router = useRouter();
     const mobileMenuOpen = ref(false);
     const profileMenuOpen = ref(false);
-    
-    // Функция для переключения мобильного меню
+
     const toggleMobileMenu = () => {
       mobileMenuOpen.value = !mobileMenuOpen.value;
-      // Закрываем меню профиля, если оно открыто
       if (mobileMenuOpen.value && profileMenuOpen.value) {
         profileMenuOpen.value = false;
       }
     };
-    
-    // Функция для переключения меню профиля
+
     const toggleProfileMenu = () => {
       profileMenuOpen.value = !profileMenuOpen.value;
     };
-    
-    // Функция для выхода из системы
+
     const logout = () => {
       authStore.logout();
       profileMenuOpen.value = false;
       router.push('/');
     };
-    
-    // Закрытие меню профиля при клике вне его
+
     const closeProfileMenu = (event) => {
       if (profileMenuOpen.value && !event.target.closest('.profile-dropdown')) {
         profileMenuOpen.value = false;
       }
     };
-    
-    // Добавляем обработчик клика по документу при монтировании компонента
+
     if (typeof window !== 'undefined') {
       window.addEventListener('click', closeProfileMenu);
     }
@@ -175,7 +167,6 @@ export default {
   font-weight: 500;
 }
 
-/* Стили для аватара и меню профиля */
 .user-profile {
   position: relative;
 }

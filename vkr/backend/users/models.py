@@ -6,7 +6,6 @@ from django.dispatch import receiver
 
 
 class UserManager(BaseUserManager):
-    """Менеджер пользователей для аутентификации по email вместо username"""
     
     def create_user(self, email, password=None, **extra_fields):
         if not email:
@@ -60,7 +59,6 @@ class User(AbstractUser):
         return self.email
     
     def save(self, *args, **kwargs):
-        # Если username не указан, используем часть email в качестве username
         if not self.username:
             self.username = self.email.split('@')[0]
         super().save(*args, **kwargs)
@@ -120,18 +118,22 @@ class Balance(models.Model):
     def check_funds(self, amount):
         """Проверка достаточности средств"""
         return self.amount >= amount
+    
+class Subscription(models.Model):
+    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='subscription')
+    is_active = models.BooleanField(default=True)
+    start_date = models.DateTimeField(auto_now_add=True)
+    end_date = models.DateTimeField()
+    auto_renewal = models.BooleanField(default=True)
+    
+    def __str__(self):
+        return f"Подписка {self.user.email} до {self.end_date.strftime('%d.%m.%Y')}"
 
-
-# Сигнал для создания баланса и charity при регистрации пользователя
 @receiver(post_save, sender=User)
 def create_user_profile(sender, instance, created, **kwargs):
     if created:
-        # Создаем баланс для всех пользователей
         Balance.objects.create(user=instance)
-        
-        # Если пользователь имеет роль charity, создаем запись в таблице Charity
         if instance.role == 'charity':
-            # Получаем имя из email или user.username
             charity_name = instance.first_name or instance.username or instance.email.split('@')[0]
             Charity.objects.create(
                 user=instance,

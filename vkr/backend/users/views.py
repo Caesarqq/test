@@ -13,6 +13,8 @@ from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from rest_framework_simplejwt.exceptions import AuthenticationFailed
 from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
+from datetime import timedelta
+from .models import Subscription
 
 from .models import User, Charity, Notification, Balance
 from .serializers import (
@@ -29,18 +31,10 @@ from .tasks import send_verification_email
 
 
 class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
-    """
-    Кастомный сериализатор для JWT токенов, проверяющий is_email_verified
-    """
     def validate(self, attrs):
-        # Получаем учетные данные из базового сериализатора
         data = super().validate(attrs)
-        
-        # Проверяем, подтвердил ли пользователь email
         if not self.user.is_email_verified:
             raise AuthenticationFailed('Аккаунт не подтвержден. Пожалуйста, проверьте вашу почту и подтвердите регистрацию.')
-        
-        # Добавляем дополнительные данные в ответ
         data['user_id'] = self.user.id
         data['email'] = self.user.email
         data['role'] = self.user.role
@@ -51,16 +45,10 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
 
 
 class CustomTokenObtainPairView(TokenObtainPairView):
-    """
-    Кастомное представление для получения JWT токена с проверкой подтверждения email
-    """
     serializer_class = CustomTokenObtainPairSerializer
 
 
 class ProfileView(generics.RetrieveAPIView):
-    """
-    Представление для получения информации о личном кабинете текущего пользователя
-    """
     serializer_class = ProfileSerializer
     permission_classes = [IsAuthenticated]
     
@@ -71,9 +59,7 @@ class ProfileView(generics.RetrieveAPIView):
         instance = self.get_object()
         serializer = self.get_serializer(instance)
         data = serializer.data
-        
-        # Добавляем дополнительные данные, если необходимо
-        # Например, количество уведомлений или другие агрегированные данные
+
         data['unread_notifications_count'] = Notification.objects.filter(
             user=instance, 
             is_read=False
@@ -107,16 +93,15 @@ class UserCreateView(generics.CreateAPIView):
 
 
 class RegisterView(generics.CreateAPIView):
-    """
-    Представление для регистрации нового пользователя с отправкой email
-    """
     queryset = User.objects.all()
     serializer_class = RegisterSerializer
     permission_classes = [AllowAny]
     
     def perform_create(self, serializer):
         user = serializer.save()
-        # Вызываем Celery задачу для отправки email
+        user.is_email_verified = True
+        user.save()
+        
         send_verification_email.delay(user.id, user.email_verification_code)
         
     def create(self, request, *args, **kwargs):
@@ -124,8 +109,7 @@ class RegisterView(generics.CreateAPIView):
         serializer.is_valid(raise_exception=True)
         self.perform_create(serializer)
         headers = self.get_success_headers(serializer.data)
-        
-        # Возвращаем успешный ответ с инструкцией проверить почту
+
         return Response(
             {
                 "id": serializer.data.get("id"),
@@ -138,14 +122,9 @@ class RegisterView(generics.CreateAPIView):
 
 
 class EmailVerificationView(APIView):
-    """
-    Представление для подтверждения email по токену верификации
-    через query параметр: /api/users/verify-email/?token=...
-    """
     permission_classes = [AllowAny]
     
     def get(self, request):
-        # Получаем токен из query параметра
         verification_code = request.query_params.get('token')
         
         if not verification_code:
@@ -153,8 +132,7 @@ class EmailVerificationView(APIView):
                 {"error": "Не указан токен верификации"},
                 status=status.HTTP_400_BAD_REQUEST
             )
-        
-        # Ищем пользователя с таким кодом
+
         try:
             user = User.objects.get(
                 email_verification_code=verification_code,
@@ -165,8 +143,7 @@ class EmailVerificationView(APIView):
                 {"error": "Недействительный или просроченный токен верификации"},
                 status=status.HTTP_400_BAD_REQUEST
             )
-        
-        # Подтверждаем почту
+
         user.is_email_verified = True
         user.email_verification_code = None
         user.email_verification_expiration = None
@@ -331,14 +308,12 @@ class UserCharityView(APIView):
     )
     def get(self, request):
         try:
-            # Проверяем, что пользователь имеет роль 'charity'
             if request.user.role != 'charity':
                 return Response(
                     {"detail": "Пользователь не является благотворительной организацией"},
                     status=status.HTTP_400_BAD_REQUEST
                 )
-                
-            # Находим связанную организацию
+
             try:
                 charity = Charity.objects.get(user=request.user)
                 serializer = CharitySerializer(charity)
@@ -353,3 +328,183 @@ class UserCharityView(APIView):
                 {"detail": f"Ошибка: {str(e)}"},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
+class SubscriptionView(APIView):
+    """
+    Представление для управления подпиской пользователя
+    """
+    permission_classes = [IsAuthenticated]
+    
+    @swagger_auto_schema(
+        operation_description="Получение информации о подписке пользователя",
+        responses={
+            200: openapi.Response(
+                description="Информация о подписке",
+                schema=openapi.Schema(
+                    type=openapi.TYPE_OBJECT,
+                    properties={
+                        'has_subscription': openapi.Schema(type=openapi.TYPE_BOOLEAN),
+                        'end_date': openapi.Schema(type=openapi.TYPE_STRING, format='date-time', nullable=True),
+                        'auto_renewal': openapi.Schema(type=openapi.TYPE_BOOLEAN)
+                    }
+                )
+            )
+        },
+        tags=['subscription']
+    )
+    def get(self, request):
+        """Получение информации о подписке пользователя"""
+        try:
+            subscription = Subscription.objects.filter(user=request.user).first()
+            
+            if subscription:
+                has_subscription = subscription.is_active and subscription.end_date > timezone.now()
+                
+                return Response({
+                    'has_subscription': has_subscription,
+                    'end_date': subscription.end_date if has_subscription else None,
+                    'auto_renewal': subscription.auto_renewal if has_subscription else False
+                })
+            else:
+                return Response({
+                    'has_subscription': False,
+                    'end_date': None,
+                    'auto_renewal': False
+                })
+        except Exception as e:
+            return Response({'detail': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    
+    @swagger_auto_schema(
+        operation_description="Оформление подписки",
+        request_body=openapi.Schema(
+            type=openapi.TYPE_OBJECT,
+            required=['payment_method'],
+            properties={
+                'payment_method': openapi.Schema(
+                    type=openapi.TYPE_STRING,
+                    enum=['balance', 'card'],
+                    description='Способ оплаты: balance - с баланса аккаунта, card - банковской картой'
+                )
+            }
+        ),
+        responses={
+            200: openapi.Response(
+                description="Подписка успешно оформлена",
+                schema=openapi.Schema(
+                    type=openapi.TYPE_OBJECT,
+                    properties={
+                        'has_subscription': openapi.Schema(type=openapi.TYPE_BOOLEAN),
+                        'end_date': openapi.Schema(type=openapi.TYPE_STRING, format='date-time'),
+                        'message': openapi.Schema(type=openapi.TYPE_STRING)
+                    }
+                )
+            ),
+            400: "Ошибка при оформлении подписки"
+        },
+        tags=['subscription']
+    )
+    def post(self, request):
+        """Оформление новой подписки"""
+        payment_method = request.data.get('payment_method')
+
+        subscription_price = 500
+        
+        try:
+            existing_subscription = Subscription.objects.filter(
+                user=request.user, 
+                is_active=True,
+                end_date__gt=timezone.now()
+            ).first()
+            
+            if existing_subscription:
+                existing_subscription.end_date = existing_subscription.end_date + timedelta(days=30)
+                existing_subscription.save()
+                
+                return Response({
+                    'has_subscription': True,
+                    'end_date': existing_subscription.end_date,
+                    'message': 'Подписка успешно продлена'
+                })
+
+            if payment_method == 'balance':
+
+                try:
+                    balance = Balance.objects.get(user=request.user)
+                    if balance.amount < subscription_price:
+                        return Response(
+                            {'detail': 'Недостаточно средств на балансе'},
+                            status=status.HTTP_400_BAD_REQUEST
+                        )
+
+                    balance.withdraw(subscription_price)
+                except Balance.DoesNotExist:
+                    return Response(
+                        {'detail': 'Баланс пользователя не найден'},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+            elif payment_method == 'card':
+
+                pass
+            else:
+                return Response(
+                    {'detail': 'Неверный способ оплаты'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            end_date = timezone.now() + timedelta(days=30)
+            subscription = Subscription.objects.create(
+                user=request.user,
+                is_active=True,
+                end_date=end_date,
+                auto_renewal=True
+            )
+            
+            return Response({
+                'has_subscription': True,
+                'end_date': subscription.end_date,
+                'message': 'Подписка успешно оформлена'
+            })
+            
+        except Exception as e:
+            return Response({'detail': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    
+    @swagger_auto_schema(
+        operation_description="Отмена автопродления подписки",
+        responses={
+            200: openapi.Response(
+                description="Автопродление отменено",
+                schema=openapi.Schema(
+                    type=openapi.TYPE_OBJECT,
+                    properties={
+                        'message': openapi.Schema(type=openapi.TYPE_STRING),
+                        'end_date': openapi.Schema(type=openapi.TYPE_STRING, format='date-time')
+                    }
+                )
+            ),
+            404: "Подписка не найдена"
+        },
+        tags=['subscription']
+    )
+    def delete(self, request):
+        """Отмена автопродления подписки"""
+        try:
+            subscription = Subscription.objects.filter(
+                user=request.user, 
+                is_active=True
+            ).first()
+            
+            if not subscription:
+                return Response(
+                    {'detail': 'У вас нет активной подписки'},
+                    status=status.HTTP_404_NOT_FOUND
+                )
+
+            subscription.auto_renewal = False
+            subscription.save()
+            
+            return Response({
+                'message': 'Автопродление подписки отменено',
+                'end_date': subscription.end_date
+            })
+            
+        except Exception as e:
+            return Response({'detail': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

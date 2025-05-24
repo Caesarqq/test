@@ -4,7 +4,7 @@ import secrets
 import string
 from django.utils import timezone
 from datetime import timedelta
-
+from .models import Subscription
 
 class UserSerializer(serializers.ModelSerializer):
     class Meta:
@@ -14,9 +14,6 @@ class UserSerializer(serializers.ModelSerializer):
 
 
 class ProfileSerializer(serializers.ModelSerializer):
-    """
-    Сериализатор для вывода профиля пользователя в личном кабинете
-    """
     class Meta:
         model = User
         fields = ['id', 'email', 'username', 'first_name', 'last_name', 'role', 'is_email_verified', 'date_joined']
@@ -50,7 +47,6 @@ class RegisterSerializer(serializers.ModelSerializer):
     def validate(self, data):
         if data['password'] != data['password_confirm']:
             raise serializers.ValidationError("Пароли не совпадают")
-        # Валидация ОГРН для charity
         if data.get('role') == 'charity':
             ogrn = data.get('ogrn', '')
             if not ogrn or not ogrn.isdigit() or len(ogrn) != 13:
@@ -61,22 +57,17 @@ class RegisterSerializer(serializers.ModelSerializer):
         validated_data.pop('password_confirm')
         password = validated_data.pop('password')
         ogrn = validated_data.pop('ogrn', None)
-        # Для charity не передаем last_name, для остальных не передаем ogrn
         if validated_data.get('role') == 'charity':
             validated_data.pop('last_name', None)
         else:
             ogrn = None
-        # Создание пользователя
         user = User(**validated_data)
         user.set_password(password)
         user.is_email_verified = False
-        # Генерация уникального кода подтверждения
         verification_code = ''.join(secrets.choice(string.ascii_letters + string.digits) for _ in range(20))
         user.email_verification_code = verification_code
-        # Установка срока действия кода (24 часа)
         user.email_verification_expiration = timezone.now() + timedelta(days=1)
         user.save()
-        # Если это charity, обновляем ogrn у связанной Charity
         if user.role == 'charity' and ogrn:
             charity = Charity.objects.filter(user=user).first()
             if charity:
@@ -114,3 +105,9 @@ class TopUpBalanceSerializer(serializers.Serializer):
         if value <= 0:
             raise serializers.ValidationError("Сумма пополнения должна быть положительной")
         return value
+    
+class SubscriptionSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Subscription
+        fields = ['id', 'is_active', 'start_date', 'end_date', 'auto_renewal']
+        read_only_fields = ['id', 'start_date']

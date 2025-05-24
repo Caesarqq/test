@@ -18,11 +18,9 @@ def send_verification_email(user_id, verification_code):
         user = User.objects.get(id=user_id)
     except User.DoesNotExist:
         return "Пользователь не найден"
-    
-    # Формируем URL с токеном верификации
+
     verification_url = f"{settings.SITE_URL}/api/users/verify-email/?token={verification_code}"
-    
-    # Создаем HTML версию письма (в отдельном файле шаблона лучше)
+
     html_message = f"""
     <!DOCTYPE html>
     <html>
@@ -65,7 +63,6 @@ def send_verification_email(user_id, verification_code):
     </html>
     """
     
-    # Текстовая версия письма (для клиентов, не поддерживающих HTML)
     plain_message = f"""
     Здравствуйте, {user.first_name or 'Пользователь'}!
     
@@ -83,8 +80,7 @@ def send_verification_email(user_id, verification_code):
     """
     
     subject = "Подтверждение вашего аккаунта"
-    
-    # Отправляем письмо через Mailgun API
+
     send_mailgun_email(subject, plain_message, html_message, user.email)
     
     return f"Письмо с подтверждением отправлено на {user.email}"
@@ -102,7 +98,6 @@ def send_notification_email(user_id, subject, message):
     except User.DoesNotExist:
         return "Пользователь не найден"
     
-    # Отправляем письмо через Mailgun API
     send_mailgun_email(subject, message, message, user.email)
     
     return f"Уведомление отправлено на {user.email}"

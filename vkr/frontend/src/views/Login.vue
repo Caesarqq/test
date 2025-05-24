@@ -1,16 +1,12 @@
 <template>
   <div class="auth-container">
     <h1>Вход</h1>
-    
-    <!-- Уведомления -->
     <AlertMessage 
       :show="!!authStore.error" 
       :message="authStore.error" 
       type="error" 
       @close="authStore.error = null" 
     />
-    
-    <!-- Форма логина -->
     <form class="auth-form" @submit.prevent="handleLogin">
       <div class="form-group">
         <label for="email">Email</label>
@@ -59,19 +55,13 @@ export default {
   setup() {
     const authStore = useAuthStore();
     const router = useRouter();
-    
-    // Данные для авторизации
     const credentials = ref({
       email: '',
       password: ''
     });
-    
-    // Обработчик отправки формы
+
     const handleLogin = async () => {
-      // Отправка данных на сервер и получение токенов
       const success = await authStore.login(credentials.value);
-      
-      // Если вход успешен, перенаправляем на страницу профиля
       if (success) {
         router.push('/profile');
       }

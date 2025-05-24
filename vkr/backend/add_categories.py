@@ -1,24 +1,17 @@
-from lots.models import Category
+def test_pending_lot_access(api_client, donor_user, charity_user, pending_lot, buyer_user):
+    # Донор-владелец видит лот
+    api_client.force_authenticate(user=donor_user)
+    response = api_client.get(f'/api/v1/lots/{pending_lot.id}/')
+    assert response.status_code == 200
+    # Организация-владелец аукциона видит лот
+    api_client.force_authenticate(user=charity_user)
+    response = api_client.get(f'/api/v1/lots/{pending_lot.id}/')
+    assert response.status_code == 200
+    # Покупатель не видит лот
+    api_client.force_authenticate(user=buyer_user)
+    response = api_client.get(f'/api/v1/lots/{pending_lot.id}/')
+    assert response.status_code == 404
 
-categories_to_add = [
-    "Живопись",
-    "Скульптура",
-    "Графика",
-    "Фотография",
-    "Декоративно-прикладное искусство",
-    "Книги и рукописи",
-    "Антиквариат",
-    "Коллекционные предметы",
-    "Ювелирные изделия",
-    "Благотворительные лоты"
-]
 
-# Добавляем категории
-for name in categories_to_add:
-    category, created = Category.objects.get_or_create(name=name)
-    if created:
-        print(f"Добавлена категория: {name}")
-    else:
-        print(f"Категория уже существует: {name}")
 
-print(f"Всего категорий: {Category.objects.count()}") 
+    

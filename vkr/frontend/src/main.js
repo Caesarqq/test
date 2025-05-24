@@ -11,9 +11,7 @@ const pinia = createPinia()
 app.use(pinia)
 app.use(router)
 
-// Инициализация хранилища auth
 const authStore = useAuthStore()
 authStore.init().finally(() => {
-  // Монтируем приложение после инициализации хранилища
   app.mount('#app')
 })

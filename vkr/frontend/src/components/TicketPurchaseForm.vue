@@ -57,6 +57,8 @@ import { ref, computed, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import { useAuthStore } from '../store/auth';
 import apiClient from '../api/axios';
+import auctionsApi from '../api/auctionsApi';
+import { useTicketsStore } from '../store/ticketsStore';
 
 export default {
   name: 'TicketPurchaseForm',
@@ -92,7 +94,8 @@ export default {
     const error = ref(null);
     const success = ref(false);
     const userBalance = ref(0);
-    
+    const ticketsStore = useTicketsStore();
+
     // Загрузка баланса пользователя
     const fetchUserBalance = async () => {
       try {
@@ -121,12 +124,14 @@ export default {
       error.value = null;
       
       try {
-        const response = await apiClient.post('/auctions/tickets/purchase/', {
+        // Исправленный URL - убираем дублирование /api/
+        const response = await apiClient.post('/v1/auctions/tickets/purchase/', {
           auction: props.auctionId
         });
         
         if (response.status === 201) {
           success.value = true;
+          ticketsStore.addTicket(response.data);
           // Обновляем баланс пользователя
           await fetchUserBalance();
           // Вызываем callback в случае успеха
@@ -288,4 +293,4 @@ h2 {
 .btn-secondary:hover {
   background-color: #bdc3c7;
 }
-</style> 
+</style>

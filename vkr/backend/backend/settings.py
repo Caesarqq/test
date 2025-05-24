@@ -133,7 +133,6 @@ STATIC_URL = '/static/'
 STATIC_ROOT = os.path.join(BASE_DIR, 'static')
 STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
 
-# Настройки для медиа-файлов
 MEDIA_URL = '/media/'
 MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 
@@ -142,7 +141,6 @@ MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
-# Указываем кастомную модель пользователя
 AUTH_USER_MODEL = 'users.User'
 
 from corsheaders.defaults import default_headers
@@ -165,7 +163,6 @@ CORS_ALLOW_METHODS = [
     'PUT',
 ]
 
-# Настройки REST Framework
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': (
         'rest_framework_simplejwt.authentication.JWTAuthentication',
@@ -178,7 +175,6 @@ REST_FRAMEWORK = {
     ],
 }
 
-# Настройки Swagger/drf-yasg
 SWAGGER_SETTINGS = {
     'SECURITY_DEFINITIONS': {
         'Bearer': {
@@ -196,7 +192,6 @@ SWAGGER_SETTINGS = {
     'TAGS_SORTER': 'alpha',
 }
 
-# Настройки JWT
 from datetime import timedelta
 
 SIMPLE_JWT = {
@@ -227,7 +222,6 @@ SIMPLE_JWT = {
     'JTI_CLAIM': 'jti',
 }
 
-# Настройки Celery
 CELERY_BROKER_URL = os.getenv('CELERY_BROKER_URL', 'amqp://user:password@rabbitmq:5672//')
 CELERY_RESULT_BACKEND = os.getenv('CELERY_RESULT_BACKEND', 'rpc://')
 CELERY_ACCEPT_CONTENT = ['json']
@@ -235,32 +229,28 @@ CELERY_TASK_SERIALIZER = 'json'
 CELERY_RESULT_SERIALIZER = 'json'
 CELERY_TIMEZONE = 'UTC'
 
-# Новые настройки для исправления предупреждений
 CELERY_BROKER_CONNECTION_RETRY = True
 CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP = True
 CELERY_TASK_TRACK_STARTED = True
-CELERY_TASK_TIME_LIMIT = 30 * 60  # 30 минут
+CELERY_TASK_TIME_LIMIT = 30 * 60  
 CELERY_WORKER_PREFETCH_MULTIPLIER = 1
 CELERY_WORKER_MAX_TASKS_PER_CHILD = 50
 
-# Настройка расписания Celery Beat
 from celery.schedules import crontab
 
 CELERY_BEAT_SCHEDULE = {
     'process-completed-auctions': {
         'task': 'auctions.tasks.process_completed_auctions',
-        'schedule': crontab(minute='*/5'),  # Запуск каждые 5 минут
+        'schedule': crontab(minute='*/5'), 
     },
     'check-auctions-ending-soon': {
         'task': 'auctions.tasks.check_auctions_ending_soon',
-        'schedule': crontab(hour='*/1'),  # Запуск каждый час
+        'schedule': crontab(hour='*/1'), 
     },
 }
 
-# Настройки Email
-MAILGUN_API_KEY = os.getenv('MAILGUN_API_KEY', )
-MAILGUN_DOMAIN = os.getenv('MAILGUN_DOMAIN', )
+MAILGUN_API_KEY = os.getenv('MAILGUN_API_KEY', 'e63955b5a39a336be3f0df4301ffc489-e71583bb-2f1b1131')
+MAILGUN_DOMAIN = os.getenv('MAILGUN_DOMAIN', 'sandbox1338ebe362f74dc0808b64f36dceb60e.mailgun.org')
 DEFAULT_FROM_EMAIL = os.getenv('DEFAULT_FROM_EMAIL', 'no-reply@charity-auction.com')
 
-# URL для писем
 SITE_URL = os.getenv('SITE_URL', 'http://localhost:8000')

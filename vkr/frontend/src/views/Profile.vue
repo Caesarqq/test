@@ -43,7 +43,77 @@
             <span class="value">{{ formatDate(authStore.user.date_joined) }}</span>
           </div>
         </div>
-        
+         <!-- Блок подписки (только для покупателей) -->
+<div class="section" v-if="authStore.user.role === 'buyer'">
+  <h2>Премиум подписка</h2>
+  
+  <!-- Индикатор загрузки -->
+  <loading-spinner v-if="subscriptionStore.loading" text="Загрузка информации о подписке..." />
+  
+  <!-- Сообщение об ошибке -->
+  <div v-if="subscriptionStore.error" class="error-message-inline">
+    {{ subscriptionStore.error }}
+  </div>
+  
+  <!-- Активная подписка -->
+  <div v-if="subscriptionStore.isActive" class="subscription-active">
+    <div class="subscription-status">
+      <div class="subscription-badge">Активна</div>
+      <div class="subscription-info">
+        <p>У вас активная премиум подписка до <strong>{{ subscriptionStore.formattedEndDate }}</strong></p>
+        <p>Осталось дней: <strong>{{ subscriptionStore.remainingDays }}</strong></p>
+      </div>
+    </div>
+    <div class="subscription-benefits">
+      <h3>Преимущества вашей подписки:</h3>
+      <ul>
+        <li>Доступ ко всем платным аукционам без покупки билетов</li>
+        <li>Неограниченное участие в течение всего срока подписки</li>
+      </ul>
+    </div>
+    <button @click="cancelSubscription" class="cancel-subscription-btn" :disabled="subscriptionStore.loading">
+      {{ subscriptionStore.loading ? 'Отмена подписки...' : 'Отменить автопродление' }}
+    </button>
+  </div>
+  
+  <!-- Нет подписки -->
+  <div v-else-if="!subscriptionStore.loading" class="subscription-inactive">
+    <div class="subscription-promo">
+      <h3>Премиум доступ ко всем аукционам</h3>
+      <div class="subscription-features">
+        <div class="feature">
+          <span class="feature-icon">✓</span>
+          <span>Доступ ко всем платным аукционам без дополнительных платежей</span>
+        </div>
+        <div class="feature">
+          <span class="feature-icon">✓</span>
+          <span>Участвуйте в эксклюзивных аукционах для подписчиков</span>
+        </div>
+        <div class="feature">
+          <span class="feature-icon">✓</span>
+          <span>Автоматическое продление</span>
+        </div>
+      </div>
+      <div class="subscription-pricing">
+        <div class="price">{{ formatPrice(subscriptionStore.subscriptionPrice) }}/месяц</div>
+        <button @click="showSubscribeModal" class="subscribe-btn">
+          Оформить подписку
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+<subscription-modal
+  v-if="showSubscriptionModal"
+  :loading="subscriptionStore.loading"
+  :error="subscriptionStore.error"
+  :success="subscriptionStore.success"
+  :balance-amount="balanceStore.balance"
+  :subscription-price="subscriptionStore.subscriptionPrice"
+  :subscription-end-date="subscriptionStore.subscriptionEndDate"
+  @close="closeSubscriptionModal"
+  @subscribe="handleSubscribe"
+/>
         <!-- Блок баланса -->
         <div class="section" v-if="authStore.user.role === 'buyer'">
           <h2>Баланс</h2>
@@ -93,7 +163,7 @@
           </div>
         </div>
       </div>
-      
+    
       <!-- Блок ставок пользователя -->
       <div class="section bids-section" v-if="authStore.user.role === 'buyer'">
         <h2>Мои ставки</h2>
@@ -185,7 +255,8 @@ import WinningCard from '../components/WinningCard.vue';
 import TopUpModal from '../components/TopUpModal.vue';
 import LoadingSpinner from '../components/LoadingSpinner.vue';
 import DeliveryForm from '../components/DeliveryForm.vue';
-
+import { useSubscriptionStore } from '../store/subscriptionStore';
+import SubscriptionModal from '../components/SubscriptionModal.vue';
 export default {
   name: 'ProfileView',
   components: {
@@ -193,14 +264,19 @@ export default {
     WinningCard,
     TopUpModal,
     LoadingSpinner,
-    DeliveryForm
+    DeliveryForm,
+    SubscriptionModal
   },
   setup() {
     const authStore = useAuthStore();
     const balanceStore = useBalanceStore();
     const bidStore = useBidStore();
+    const subscriptionStore = useSubscriptionStore();
     const router = useRouter();
     const error = ref(null);
+    
+    // Состояние модального окна подписки
+    const showSubscriptionModal = ref(false); 
     
     // Состояние модального окна пополнения баланса
     const showTopUpModal = ref(false);
@@ -230,8 +306,67 @@ export default {
       return new Intl.NumberFormat('ru-RU', {
         style: 'currency',
         currency: 'RUB',
-        minimumFractionDigits: 2
+        minimumFractionDigits: 0
       }).format(price);
+    };
+    
+    // Функция для показа модального окна подписки
+    const showSubscribeModal = () => {
+      showSubscriptionModal.value = true;
+    };
+    
+    // Функция для закрытия модального окна подписки
+    const closeSubscriptionModal = () => {
+      // Если подписка была успешно оформлена, то сбрасываем флаг успеха
+      if (subscriptionStore.success) {
+        subscriptionStore.resetSuccessState();
+      }
+      showSubscriptionModal.value = false;
+    };
+    
+    // Функция для оформления подписки
+    const handleSubscribe = async (data) => {
+      try {
+        await subscriptionStore.createSubscription(data.paymentMethod);
+        
+        // Если подписка была успешно оформлена, то обновляем баланс пользователя
+        if (subscriptionStore.success) {
+          await balanceStore.fetchBalance();
+          
+          // Проверяем, есть ли редирект после подписки
+          const redirectUrl = localStorage.getItem('redirect_after_subscription');
+          
+          // Закрываем модальное окно через 3 секунды и выполняем редирект, если нужно
+          setTimeout(() => {
+            showSubscriptionModal.value = false;
+            subscriptionStore.resetSuccessState();
+            
+            if (redirectUrl) {
+              localStorage.removeItem('redirect_after_subscription');
+              router.push(redirectUrl);
+            }
+          }, 3000);
+        }
+      } catch (err) {
+        console.error('Error creating subscription:', err);
+      }
+    };
+    
+    // Функция для отмены подписки
+    const cancelSubscription = async () => {
+      try {
+        const confirmed = window.confirm('Вы уверены, что хотите отменить автопродление подписки? Вы сможете пользоваться подпиской до окончания оплаченного периода.');
+        
+        if (confirmed) {
+          await subscriptionStore.cancelSubscription();
+          
+          if (!subscriptionStore.error) {
+            alert('Автопродление подписки отменено. Вы сможете пользоваться подпиской до окончания оплаченного периода.');
+          }
+        }
+      } catch (err) {
+        console.error('Error canceling subscription:', err);
+      }
     };
     
     // Функция для получения названия роли на русском
@@ -390,13 +525,20 @@ export default {
           return;
         }
         
-        // Если пользователь - покупатель, загружаем баланс и ставки
+        // Если пользователь - покупатель, загружаем баланс, ставки и статус подписки
         if (authStore.user.role === 'buyer') {
           try {
             await balanceStore.fetchBalance();
           } catch (err) {
             console.error('Error loading balance:', err);
             // Не прерываем выполнение, чтобы остальной интерфейс мог загрузиться
+          }
+          
+          try {
+            await subscriptionStore.fetchSubscriptionStatus();
+          } catch (err) {
+            console.error('Error loading subscription status:', err);
+            // Не прерываем выполнение
           }
           
           try {
@@ -407,15 +549,20 @@ export default {
           } catch (err) {
             console.error('Error loading bids or winnings:', err);
           }
+          
+          // Проверяем, есть ли запрос на показ модального окна подписки из URL
+          if (router.currentRoute.value.query.showSubscription === 'true') {
+            // Запускаем с небольшой задержкой, чтобы все данные успели загрузиться
+            setTimeout(() => {
+              showSubscribeModal();
+            }, 500);
+          }
         }
       } catch (err) {
         error.value = 'Не удалось загрузить данные профиля';
         console.error('Error loading profile:', err);
       }
     };
-    
-    // Загружаем данные при монтировании компонента
-    onMounted(loadProfile);
     
     // Функция для обновления баланса
     const refreshBalance = async () => {
@@ -428,13 +575,18 @@ export default {
       }
     };
     
+    // Загружаем данные при монтировании компонента
+    onMounted(loadProfile);
+    
     return {
       authStore,
       balanceStore,
       bidStore,
+      subscriptionStore,
       error,
       showTopUpModal,
       topUpAmount,
+      showSubscriptionModal,
       showDeliveryForm,
       selectedTransaction,
       formatDate,
@@ -451,7 +603,11 @@ export default {
       closeDeliveryForm,
       handleDeliverySubmit,
       confirmDelivery,
-      refreshBalance
+      refreshBalance,
+      showSubscribeModal,
+      closeSubscriptionModal,
+      handleSubscribe,
+      cancelSubscription
     };
   }
 }
@@ -634,7 +790,159 @@ h3 {
 .refresh-btn:hover {
   transform: rotate(180deg);
 }
+.subscription-active {
+  padding: 16px;
+  background-color: #f0f9ff;
+  border-radius: 8px;
+  border: 1px solid #b8daff;
+  margin-bottom: 20px;
+}
 
+.subscription-status {
+  display: flex;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.subscription-badge {
+  display: inline-block;
+  background-color: #007bff;
+  color: white;
+  padding: 4px 10px;
+  border-radius: 20px;
+  font-size: 14px;
+  font-weight: bold;
+  margin-right: 16px;
+}
+
+.subscription-info {
+  flex-grow: 1;
+}
+
+.subscription-info p {
+  margin: 4px 0;
+  color: #333;
+}
+
+.subscription-benefits {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid #e2e9f3;
+}
+
+.subscription-benefits h3 {
+  font-size: 16px;
+  margin-bottom: 12px;
+  color: #333;
+}
+
+.subscription-benefits ul {
+  padding-left: 24px;
+  margin: 0;
+}
+
+.subscription-benefits li {
+  margin-bottom: 8px;
+  color: #444;
+}
+
+.cancel-subscription-btn {
+  display: block;
+  margin-top: 16px;
+  padding: 8px 16px;
+  background-color: #e9ecef;
+  color: #495057;
+  border: 1px solid #ced4da;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 14px;
+  transition: background-color 0.3s;
+}
+
+.cancel-subscription-btn:hover:not(:disabled) {
+  background-color: #dee2e6;
+}
+
+.cancel-subscription-btn:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+
+.subscription-inactive {
+  border: 1px solid #e9ecef;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.subscription-promo {
+  padding: 20px;
+  background-color: #f8f9fa;
+}
+
+.subscription-promo h3 {
+  font-size: 18px;
+  color: #333;
+  margin-top: 0;
+  margin-bottom: 16px;
+  text-align: center;
+}
+
+.subscription-features {
+  margin-bottom: 20px;
+}
+
+.subscription-features .feature {
+  display: flex;
+  align-items: flex-start;
+  margin-bottom: 12px;
+}
+
+.subscription-features .feature-icon {
+  color: #28a745;
+  font-weight: bold;
+  margin-right: 12px;
+}
+
+.subscription-pricing {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 20px;
+  padding-top: 20px;
+  border-top: 1px solid #dee2e6;
+}
+
+.subscription-pricing .price {
+  font-size: 24px;
+  font-weight: bold;
+  color: #007bff;
+}
+
+.subscribe-btn {
+  padding: 10px 20px;
+  background-color: #007bff;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 15px;
+  transition: background-color 0.3s;
+}
+
+.subscribe-btn:hover {
+  background-color: #0069d9;
+}
+
+@media (max-width: 600px) {
+  .subscription-pricing {
+    flex-direction: column;
+    gap: 12px;
+  }
+  
+  .subscribe-btn {
+    width: 100%;
+  }
+}
 @media (max-width: 600px) {
   .profile-container {
     padding: 16px;

@@ -1,3 +1,4 @@
+
 <template>
   <div class="auction-detail-container">
     <!-- Индикатор загрузки -->
@@ -50,7 +51,13 @@
           <div v-if="auction.is_paid" class="auction-paid-badge">
             <span class="paid-icon">🎟️</span>
             <span class="paid-text">Платный аукцион</span>
-            <span class="ticket-price">{{ auction.ticket_price }} руб.</span>
+            <span class="ticket-price">{{ formatPrice(auction.ticket_price) }}</span>
+            
+            <!-- Значок подписки -->
+            <span v-if="hasSubscription" class="subscription-badge">
+              <span class="subscription-icon">✓</span>
+              <span class="subscription-text">Доступно по подписке</span>
+            </span>
           </div>
           
           <div v-if="auction.category" class="auction-category">
@@ -71,12 +78,6 @@
           <div class="auction-status" :class="getStatusClass">
             {{ getStatusText }}
           </div>
-          
-          <!-- Кнопка покупки билета для платного аукциона -->
-          <!-- <div v-if="needsTicket" class="ticket-required">
-            <p>Для доступа к этому аукциону требуется билет</p>
-            <button @click="showTicketForm = true" class="buy-ticket-btn">Купить билет</button>
-          </div> -->
           
           <div v-if="auction.description" class="auction-description">
             <h3>Описание</h3>
@@ -133,8 +134,36 @@
       <div v-else class="access-restricted">
         <div class="restricted-icon">🔒</div>
         <h3>Доступ ограничен</h3>
-        <p>Для просмотра лотов этого аукциона необходимо приобрести билет</p>
-        <button @click="showTicketForm = true" class="buy-ticket-btn">Купить билет</button>
+        
+        <!-- Информация о платной подписке -->
+        <div class="subscription-info" v-if="authStore.isAuthenticated && authStore.user.role === 'buyer'">
+          <p>Для просмотра лотов этого аукциона необходимо приобрести билет или оформить премиум-подписку</p>
+          <div class="access-options">
+            <button @click="showTicketForm = true" class="buy-ticket-btn">
+              Купить билет ({{ formatPrice(auction.ticket_price) }})
+            </button>
+            <button @click="goToSubscription" class="subscribe-btn">
+              Оформить подписку ({{ formatPrice(599) }}/месяц)
+            </button>
+          </div>
+          <div class="subscription-benefits">
+            <p>Преимущества подписки:</p>
+            <ul>
+              <li>Доступ ко всем платным аукционам без покупки билетов</li>
+              <li>Неограниченное участие в течение месяца</li>
+            </ul>
+          </div>
+        </div>
+        
+        <!-- Информация для неавторизованных пользователей -->
+        <div v-else>
+          <p>Для просмотра лотов этого аукциона необходимо приобрести билет</p>
+          <div class="access-options">
+            <button @click="showTicketForm = true" class="buy-ticket-btn">
+              Купить билет ({{ formatPrice(auction.ticket_price) }})
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   </div>
@@ -150,7 +179,8 @@ import LotCard from '../components/LotCard.vue';
 import LoadingSpinner from '../components/LoadingSpinner.vue';
 import TicketPurchaseForm from '../components/TicketPurchaseForm.vue';
 import apiClient from '../api/axios';
-
+import { useTicketsStore } from '../store/ticketsStore';
+import { useSubscriptionStore } from '../store/subscriptionStore';
 export default {
   name: 'AuctionDetailView',
   
@@ -172,13 +202,32 @@ export default {
     const showTicketForm = ref(false);
     const hasTicket = ref(false);
     const needsTicket = ref(false);
-    
+    const ticketsStore = useTicketsStore();
+    const subscriptionStore = useSubscriptionStore();
+    // Вычисляемое свойство для проверки наличия активной подписки
+    const hasSubscription = computed(() => subscriptionStore.isActive);
     // Получение ID аукциона из параметров маршрута
     const auctionId = computed(() => route.params.id);
     
     // Данные аукциона
     const auction = computed(() => auctionsStore.currentAuction);
+
+    const formatPrice = (price) => {
+    if (!price) return '0 ₽';
+    return new Intl.NumberFormat('ru-RU', {
+      style: 'currency',
+      currency: 'RUB',
+      minimumFractionDigits: 0
+    }).format(price);
+  };
+   // Переход на страницу профиля для оформления подписки
+   const goToSubscription = () => {
+    // Сохраняем текущий URL аукциона, чтобы вернуться после оформления подписки
+    localStorage.setItem('redirect_after_subscription', router.currentRoute.value.fullPath);
     
+    // Перенаправляем на страницу профиля с параметром для автоматического открытия модального окна подписки
+    router.push('/profile?showSubscription=true');
+  };
     // Отфильтрованные лоты данного аукциона
     const filteredLots = computed(() => {
   if (!lotsStore.lots || !auction.value) return [];
@@ -241,6 +290,7 @@ export default {
     
     // Проверка наличия билета
     // Проверка наличия билета
+// Проверка наличия билета
 const checkTicket = async () => {
   if (!authStore.isAuthenticated || !auction.value?.is_paid) {
     needsTicket.value = false;
@@ -259,28 +309,119 @@ const checkTicket = async () => {
     needsTicket.value = false;
     return;
   }
+  try {
+    await subscriptionStore.fetchSubscriptionStatus();
+    
+    // Если есть активная подписка, предоставляем доступ
+    if (subscriptionStore.isActive) {
+      needsTicket.value = false;
+      hasTicket.value = true;
+      return;
+    }
+  } catch (err) {
+    console.error('Ошибка при проверке подписки:', err);
+    // Продолжаем проверку наличия билета
+  }
+  // Проверяем сначала в localStorage
+  try {
+    // Получаем сохраненные билеты из localStorage
+    const storedTickets = localStorage.getItem('user_tickets');
+    
+    if (storedTickets) {
+      const tickets = JSON.parse(storedTickets);
+      // Проверяем, есть ли билет на текущий аукцион
+      const hasStoredTicket = tickets.some(ticket => 
+        ticket.auction == auctionId.value || 
+        ticket.auction_id == auctionId.value
+      );
+      
+      if (hasStoredTicket) {
+        console.log('Найден билет в localStorage для аукциона:', auctionId.value);
+        hasTicket.value = true;
+        needsTicket.value = false;
+        return;
+      }
+    }
+  } catch (err) {
+    console.error('Ошибка при проверке билетов в localStorage:', err);
+    // Продолжаем выполнение и проверяем через API
+  }
   
+  // Если в localStorage нет билета, проверяем через API
   try {
     const response = await apiClient.get(`/auctions/tickets/check-access/?auction_id=${auctionId.value}`);
     hasTicket.value = response.data?.has_ticket || false;
+    
+    // Если API подтвердил наличие билета, сохраняем его в localStorage для будущих сеансов
+    if (hasTicket.value && response.data?.ticket) {
+      try {
+        // Получаем существующие билеты или создаем новый массив
+        const existingTickets = localStorage.getItem('user_tickets') 
+          ? JSON.parse(localStorage.getItem('user_tickets')) 
+          : [];
+        
+        // Проверяем, нет ли уже такого билета в хранилище
+        const ticketExists = existingTickets.some(t => 
+          t.id === response.data.ticket.id || 
+          (t.auction == auctionId.value && t.user == authStore.user.id)
+        );
+        
+        if (!ticketExists) {
+          // Добавляем новый билет
+          existingTickets.push(response.data.ticket);
+          localStorage.setItem('user_tickets', JSON.stringify(existingTickets));
+          console.log('Билет сохранен в localStorage:', response.data.ticket);
+        }
+      } catch (storageErr) {
+        console.error('Ошибка при сохранении билета в localStorage:', storageErr);
+      }
+    }
+    
     needsTicket.value = !hasTicket.value;
   } catch (err) {
-    console.error('Ошибка при проверке билета:', err);
+    console.error('Ошибка при проверке билета через API:', err);
     // Если не удалось проверить билет, предполагаем что он нужен
     needsTicket.value = true;
   }
 };
     
     // Обработка успешной покупки билета
-    const handleTicketPurchased = async () => {
-      // Ждем чтобы пользователь увидел сообщение об успехе
-      setTimeout(async () => {
-        showTicketForm.value = false;
-        hasTicket.value = true;
-        needsTicket.value = false;
-        await lotsStore.fetchLotsByAuction(auctionId.value);
-      }, 2000);
+// Обработка успешной покупки билета
+const handleTicketPurchased = async (ticketData) => {
+  // Сохраняем купленный билет в localStorage
+  try {
+    // Получаем существующие билеты или создаем новый массив
+    const existingTickets = localStorage.getItem('user_tickets') 
+      ? JSON.parse(localStorage.getItem('user_tickets')) 
+      : [];
+    
+    // Формируем информацию о билете, если она не передана в ticketData
+    const newTicket = ticketData || {
+      id: Date.now(), // временный ID если нет настоящего
+      auction: parseInt(auctionId.value),
+      auction_name: auction.value?.name || auction.value?.title,
+      user: authStore.user.id,
+      user_email: authStore.user.email,
+      purchase_date: new Date().toISOString(),
+      is_used: false
     };
+    
+    // Добавляем новый билет
+    existingTickets.push(newTicket);
+    localStorage.setItem('user_tickets', JSON.stringify(existingTickets));
+    console.log('Билет добавлен в localStorage после покупки:', newTicket);
+  } catch (err) {
+    console.error('Ошибка при сохранении купленного билета в localStorage:', err);
+  }
+  
+  // Ждем чтобы пользователь увидел сообщение об успехе
+  setTimeout(async () => {
+    showTicketForm.value = false;
+    hasTicket.value = true;
+    needsTicket.value = false;
+    await lotsStore.fetchLotsByAuction(auctionId.value);
+  }, 2000);
+};
     
     // Закрытие формы покупки билета
     const closeTicketForm = () => {
@@ -368,22 +509,26 @@ const checkTicket = async () => {
     
     return {
       loading,
-      error,
-      auction,
-      auctionId,
-      filteredLots,
-      formatDate,
-      getStatusClass,
-      getStatusText,
-      getCharityName,
-      navigateToCreateLot,
-      showTicketForm,
-      hasTicket,
-      needsTicket,
-      closeTicketForm,
-      handleTicketPurchased,
-      authStore,
-      lotsStore
+    error,
+    auction,
+    auctionId,
+    filteredLots,
+    formatDate,
+    formatPrice,
+    getStatusClass,
+    getStatusText,
+    getCharityName,
+    navigateToCreateLot,
+    showTicketForm,
+    hasTicket,
+    needsTicket,
+    closeTicketForm,
+    handleTicketPurchased,
+    goToSubscription,
+    authStore,
+    lotsStore,
+    subscriptionStore,
+    hasSubscription: computed(() => subscriptionStore.isActive) 
     };
   }
 };
@@ -674,6 +819,103 @@ const checkTicket = async () => {
 
 .ticket-required {
   margin-bottom: 24px;
+}
+.access-restricted {
+  text-align: center;
+  padding: 32px 24px;
+  background-color: #f8f9fa;
+  border-radius: 8px;
+  border: 1px solid #dee2e6;
+  margin: 20px 0;
+}
+
+.restricted-icon {
+  font-size: 48px;
+  margin-bottom: 16px;
+}
+
+.access-restricted h3 {
+  font-size: 24px;
+  margin-bottom: 16px;
+  color: #343a40;
+}
+
+.access-restricted p {
+  margin-bottom: 24px;
+  color: #495057;
+}
+
+.access-options {
+  display: flex;
+  justify-content: center;
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.buy-ticket-btn, .subscribe-btn {
+  padding: 10px 18px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 15px;
+  font-weight: 500;
+  border: none;
+  transition: background-color 0.3s, transform 0.1s;
+}
+
+.buy-ticket-btn {
+  background-color: #007bff;
+  color: white;
+}
+
+.buy-ticket-btn:hover {
+  background-color: #0069d9;
+  transform: translateY(-2px);
+}
+
+.subscribe-btn {
+  background-color: #28a745;
+  color: white;
+}
+
+.subscribe-btn:hover {
+  background-color: #218838;
+  transform: translateY(-2px);
+}
+
+.subscription-benefits {
+  text-align: left;
+  background-color: #e9f7ef;
+  padding: 16px;
+  border-radius: 6px;
+  max-width: 500px;
+  margin: 0 auto;
+}
+
+.subscription-benefits p {
+  font-weight: 500;
+  margin-bottom: 8px;
+  color: #2c3e50;
+}
+
+.subscription-benefits ul {
+  margin: 0;
+  padding-left: 20px;
+}
+
+.subscription-benefits li {
+  margin-bottom: 8px;
+  color: #4a6072;
+}
+
+@media (max-width: 576px) {
+  .access-options {
+    flex-direction: column;
+    gap: 12px;
+  }
+  
+  .buy-ticket-btn, .subscribe-btn {
+    width: 100%;
+  }
 }
 
 @media (max-width: 992px) {
